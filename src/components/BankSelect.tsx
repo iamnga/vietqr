@@ -153,7 +153,7 @@ export const BankSelect: React.FC<BankSelectProps> = ({
                           </span>
                         </div>
                         <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                          {bank.fullName}
+                          {bank.name}
                         </div>
                       </div>
                       {bank.bin === value && (

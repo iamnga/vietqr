@@ -5,8 +5,14 @@
 
 import QRCode from 'qrcode';
 import { BrowserQRCodeReader } from '@zxing/browser';
+import jsQR from 'jsqr';
 import { encodeTLV, decodeTLV, decodeNestedTLV, findTLVField } from './tlv';
 import { crc16ccittFalse } from './crc16';
+import {
+  loadImageFromFile,
+  imageToImageData,
+  getPreprocessingModes,
+} from './image-processor';
 import type {
   VietQRFormData,
   GeneratedQR,
@@ -146,6 +152,54 @@ export async function buildVietQR(formData: VietQRFormData): Promise<GeneratedQR
 }
 
 /**
+ * Try to decode QR code using ZXing
+ */
+async function tryDecodeWithZXing(file: File): Promise<string | null> {
+  try {
+    const reader = new BrowserQRCodeReader();
+    const imageUrl = URL.createObjectURL(file);
+    const result = await reader.decodeFromImageUrl(imageUrl);
+    URL.revokeObjectURL(imageUrl);
+    return result.getText();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Try to decode QR code using jsQR with preprocessing
+ */
+async function tryDecodeWithJsQR(file: File): Promise<string | null> {
+  try {
+    const img = await loadImageFromFile(file);
+    const originalImageData = imageToImageData(img);
+
+    // Try different preprocessing modes
+    const modes = getPreprocessingModes();
+
+    for (const mode of modes) {
+      const processedImageData = mode.process(originalImageData);
+      const result = jsQR(
+        processedImageData.data,
+        processedImageData.width,
+        processedImageData.height,
+        {
+          inversionAttempts: 'attemptBoth', // Try both normal and inverted
+        }
+      );
+
+      if (result) {
+        return result.data;
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Parse VietQR from payload string or image file
  */
 export async function parseVietQR(input: string | File): Promise<ParsedVietQR> {
@@ -155,16 +209,22 @@ export async function parseVietQR(input: string | File): Promise<ParsedVietQR> {
     // Direct payload
     payload = input.trim();
   } else {
-    // Decode QR image using ZXing
-    const reader = new BrowserQRCodeReader();
-    try {
-      const imageUrl = URL.createObjectURL(input);
-      const result = await reader.decodeFromImageUrl(imageUrl);
-      URL.revokeObjectURL(imageUrl);
-      payload = result.getText();
-    } catch (error) {
-      throw new Error('Failed to decode QR code from image: ' + (error as Error).message);
+    // Decode QR image with fallback mechanism
+    // Try ZXing first (faster and reliable for most cases)
+    let decoded = await tryDecodeWithZXing(input);
+
+    // If ZXing fails, try jsQR with preprocessing
+    if (!decoded) {
+      decoded = await tryDecodeWithJsQR(input);
     }
+
+    if (!decoded) {
+      throw new Error(
+        'Failed to decode QR code from image. Please ensure the image contains a valid QR code and try again.'
+      );
+    }
+
+    payload = decoded;
   }
 
   // Decode TLV

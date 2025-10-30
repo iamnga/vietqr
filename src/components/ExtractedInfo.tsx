@@ -90,7 +90,7 @@ export const ExtractedInfo: React.FC<ExtractedInfoProps> = ({ parsed, className 
                     {bankInfo.shortName}
                   </div>
                   <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    {bankInfo.fullName}
+                    {bankInfo.name}
                   </div>
                   <div className="text-xs font-mono text-gray-500 dark:text-gray-500 mt-1">
                     BIN: {bankInfo.bin}
@@ -105,7 +105,7 @@ export const ExtractedInfo: React.FC<ExtractedInfoProps> = ({ parsed, className 
                 </div>
               )
             }
-            tooltip={bankInfo ? `${bankInfo.shortName} - ${bankInfo.fullName}` : 'Mã BIN ngân hàng'}
+            tooltip={bankInfo ? `${bankInfo.shortName} - ${bankInfo.name}` : 'Mã BIN ngân hàng'}
             highlight={true}
           />
         )}
