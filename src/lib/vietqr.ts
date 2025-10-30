@@ -56,9 +56,16 @@ export async function buildVietQR(formData: VietQRFormData): Promise<GeneratedQR
   fields.push({ id: '01', value: initiationMethod });
 
   // ID38: Merchant Account Information (VietQR via NAPAS)
+  // ID38.01 is a nested TLV with BNB (sub-tag 00) and Account ID (sub-tag 01)
+  const id38_01_SubFields = [
+    { id: '00', value: bnbId },       // 6-digit BNB/Bank BIN
+    { id: '01', value: accountId },   // Account/Card number
+  ];
+  const id38_01_Value = encodeTLV(id38_01_SubFields);
+
   const id38SubFields = [
     { id: '00', value: NAPAS_AID },
-    { id: '01', value: bnbId + accountId },
+    { id: '01', value: id38_01_Value },  // Nested TLV
     { id: '02', value: serviceCode },
   ];
   const id38Value = encodeTLV(id38SubFields);
@@ -207,11 +214,26 @@ export async function parseVietQR(input: string | File): Promise<ParsedVietQR> {
   const id38 = findTLVField(rootFields, '38');
   if (id38) {
     const id38Fields = decodeNestedTLV(id38.value);
+
+    // ID38.01 is itself a nested TLV containing BNB (00) and Account ID (01)
     const id38_01 = findTLVField(id38Fields, '01');
-    if (id38_01 && id38_01.value.length >= 6) {
-      extracted.bnbId = id38_01.value.substring(0, 6);
-      extracted.accountId = id38_01.value.substring(6);
+    if (id38_01) {
+      try {
+        const id38_01_Fields = decodeNestedTLV(id38_01.value);
+        const bnbField = findTLVField(id38_01_Fields, '00');
+        const accountField = findTLVField(id38_01_Fields, '01');
+
+        if (bnbField) extracted.bnbId = bnbField.value;
+        if (accountField) extracted.accountId = accountField.value;
+      } catch {
+        // Fallback to old format (for backward compatibility)
+        if (id38_01.value.length >= 6) {
+          extracted.bnbId = id38_01.value.substring(0, 6);
+          extracted.accountId = id38_01.value.substring(6);
+        }
+      }
     }
+
     const id38_02 = findTLVField(id38Fields, '02');
     if (id38_02 && (id38_02.value === 'QRIBFTTA' || id38_02.value === 'QRIBFTTC')) {
       extracted.serviceCode = id38_02.value;
@@ -278,23 +300,21 @@ export function validateVietQR(parsed: ParsedVietQR): ValidationReport {
   }
 
   // ID00: Must be "01"
-  if (parsed.extracted.initiationMethod === undefined) {
-    const id00Field = parsed.fields.find((f) => f.id === '00');
-    if (!id00Field) {
-      issues.push({
-        level: 'error',
-        field: '00',
-        message: 'Missing Payload Format Indicator (ID00)',
-        suggestion: 'Add ID00 with value "01"',
-      });
-    } else if (id00Field.value !== '01') {
-      issues.push({
-        level: 'error',
-        field: '00',
-        message: `Invalid Payload Format Indicator: "${id00Field.value}" (must be "01")`,
-        suggestion: 'Set ID00 to "01"',
-      });
-    }
+  const id00Field = parsed.fields.find((f) => f.id === '00');
+  if (!id00Field) {
+    issues.push({
+      level: 'error',
+      field: '00',
+      message: 'Missing Payload Format Indicator (ID00)',
+      suggestion: 'Add ID00 with value "01"',
+    });
+  } else if (id00Field.value !== '01') {
+    issues.push({
+      level: 'error',
+      field: '00',
+      message: `Invalid Payload Format Indicator: "${id00Field.value}" (must be "01")`,
+      suggestion: 'Set ID00 to "01"',
+    });
   }
 
   // ID01: Must be "11" or "12"
@@ -333,24 +353,56 @@ export function validateVietQR(parsed: ParsedVietQR): ValidationReport {
         level: 'error',
         field: '38.01',
         message: 'Missing BNB and Account ID',
-        suggestion: 'Add ID38.01 with 6-digit BNB + Account ID',
+        suggestion: 'Add ID38.01 with nested BNB (00) and Account ID (01)',
       });
     } else {
-      if (bnbAccount.value.length < 6) {
-        issues.push({
-          level: 'error',
-          field: '38.01',
-          message: 'BNB ID must be at least 6 characters',
-          suggestion: 'Ensure first 6 characters are valid BNB code',
-        });
-      }
-      if (bnbAccount.value.length > 25) {
-        issues.push({
-          level: 'error',
-          field: '38.01',
-          message: 'BNB + Account ID exceeds maximum length (6 + 19 = 25)',
-          suggestion: 'Account ID must be max 19 characters',
-        });
+      // ID38.01 should be nested TLV with sub-fields 00 (BNB) and 01 (Account)
+      try {
+        const nestedFields = decodeNestedTLV(bnbAccount.value);
+        const bnbField = findTLVField(nestedFields, '00');
+        const accountField = findTLVField(nestedFields, '01');
+
+        if (!bnbField) {
+          issues.push({
+            level: 'error',
+            field: '38.01.00',
+            message: 'Missing BNB/Bank BIN code',
+            suggestion: 'Add sub-field 00 with 6-digit bank code',
+          });
+        } else if (!/^\d{6}$/.test(bnbField.value)) {
+          issues.push({
+            level: 'error',
+            field: '38.01.00',
+            message: `Invalid BNB format: "${bnbField.value}" (must be 6 digits)`,
+            suggestion: 'BNB must be exactly 6 digits',
+          });
+        }
+
+        if (!accountField) {
+          issues.push({
+            level: 'error',
+            field: '38.01.01',
+            message: 'Missing Account/Card ID',
+            suggestion: 'Add sub-field 01 with account or card number',
+          });
+        } else if (accountField.value.length > 19) {
+          issues.push({
+            level: 'error',
+            field: '38.01.01',
+            message: `Account ID too long: ${accountField.value.length} characters (max 19)`,
+            suggestion: 'Account/Card ID must be max 19 characters',
+          });
+        }
+      } catch {
+        // Fallback: If not nested TLV, apply old validation (for backward compatibility)
+        if (bnbAccount.value.length < 6) {
+          issues.push({
+            level: 'warning',
+            field: '38.01',
+            message: 'ID38.01 should be nested TLV format',
+            suggestion: 'Use nested sub-fields: 00 (BNB) and 01 (Account)',
+          });
+        }
       }
     }
 
