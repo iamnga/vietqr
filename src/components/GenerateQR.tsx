@@ -4,6 +4,7 @@ import { useApp } from '../contexts/AppContext';
 import { Button } from './Button';
 import { Input } from './Input';
 import { Card } from './Card';
+import { BankSelect } from './BankSelect';
 import { buildVietQR } from '../lib/vietqr';
 import type { VietQRFormData, GeneratedQR, InitiationMethod, ServiceCode } from '../lib/vietqr-types';
 
@@ -151,14 +152,12 @@ export const GenerateQR: React.FC = () => {
             </div>
           </div>
 
-          {/* BNB ID */}
-          <Input
+          {/* Bank Selection */}
+          <BankSelect
             label={t.generate.bnbId}
             placeholder={t.generate.bnbPlaceholder}
             value={formData.bnbId}
-            onChange={(e) => handleInputChange('bnbId', e.target.value)}
-            maxLength={6}
-            pattern="[0-9]*"
+            onChange={(bin) => handleInputChange('bnbId', bin)}
           />
 
           {/* Account ID */}

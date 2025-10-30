@@ -3,6 +3,7 @@ import { Upload, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { Button } from './Button';
 import { Card } from './Card';
+import { ExtractedInfo } from './ExtractedInfo';
 import { parseVietQR, validateVietQR } from '../lib/vietqr';
 import type { ParsedVietQR, ValidationReport } from '../lib/vietqr-types';
 
@@ -221,6 +222,11 @@ export const DecodeQR: React.FC = () => {
                 )}
               </div>
             </div>
+          </Card>
+
+          {/* Extracted Information - HIGHLIGHTED */}
+          <Card>
+            <ExtractedInfo parsed={result} />
           </Card>
 
           {/* Issues */}
